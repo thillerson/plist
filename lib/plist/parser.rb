@@ -59,15 +59,8 @@ module Plist
   end
 
   class StreamParser
-    def initialize( plist_data_or_file, listener )
-      if plist_data_or_file.respond_to? :read
-        @xml = plist_data_or_file.read
-      elsif File.exists? plist_data_or_file
-        @xml = File.read( plist_data_or_file )
-      else
-        @xml = plist_data_or_file
-      end
-
+    def initialize( filename_or_xml, listener )
+      @filename_or_xml = filename_or_xml
       @listener = listener
     end
 
@@ -85,7 +78,15 @@ module Plist
 
       require 'strscan'
 
-      @scanner = StringScanner.new( @xml )
+      contents = (
+        if (File.exists? @filename_or_xml)
+          File.open(@filename_or_xml) {|f| f.read}
+        else
+          @filename_or_xml
+        end
+      )
+
+      @scanner = StringScanner.new( contents )
       until @scanner.eos?
         if @scanner.scan(COMMENT_START)
           @scanner.scan(COMMENT_END)
