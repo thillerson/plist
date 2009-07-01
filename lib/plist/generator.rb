@@ -23,8 +23,8 @@ module Plist
   # For detailed usage instructions, refer to USAGE[link:files/docs/USAGE.html] and the methods documented below.
   module Emit
     # Helper method for injecting into classes.  Calls <tt>Plist::Emit.dump</tt> with +self+.
-    def to_plist(envelope = true)
-      return Plist::Emit.dump(self, envelope)
+    def to_plist(options = {})
+      return Plist::Emit.dump(self, options)
     end
 
     # Helper method for injecting into classes.  Calls <tt>Plist::Emit.save_plist</tt> with +self+.
@@ -40,10 +40,10 @@ module Plist
     # +IO+ and +StringIO+ objects are encoded and placed in <data> elements; other objects are <tt>Marshal.dump</tt>'ed unless they implement +to_plist_node+.
     #
     # The +envelope+ parameters dictates whether or not the resultant plist fragment is wrapped in the normal XML/plist header and footer.  Set it to false if you only want the fragment.
-    def self.dump(obj, envelope = true)
-      output = plist_node(obj)
+    def self.dump(obj, options = {})
+      output = plist_node(obj, options)
 
-      output = wrap(output) if envelope
+      output = wrap(output) unless options.has_key?(:noenv)
 
       return output
     end
@@ -56,19 +56,21 @@ module Plist
     end
 
     private
-    def self.plist_node(element)
+    def self.plist_node(element, options = {})
       output = ''
 
       if element.respond_to? :to_plist_node
-        output << element.to_plist_node
+        output << element.to_plist_node(options.merge({:noenv => true}))
       else
         case element
+        when nil
+          output << "<string/>\n"
         when Array
           if element.empty?
             output << "<array/>\n"
           else
             output << tag('array') {
-              element.collect {|e| plist_node(e)}
+              element.collect {|e| plist_node(e, options.merge({:noenv => true}))}
             }
           end
         when Hash
@@ -80,7 +82,7 @@ module Plist
             element.keys.sort.each do |k|
               v = element[k]
               inner_tags << tag('key', CGI::escapeHTML(k.to_s))
-              inner_tags << plist_node(v)
+              inner_tags << plist_node(v, options.merge({:noenv => true}))
             end
 
             output << tag('dict') {
@@ -108,7 +110,7 @@ module Plist
         else
           output << comment( 'The <data> element below contains a Ruby object which has been serialized with Marshal.dump.' )
           data = "\n"
-          Base64::encode64(Marshal.dump(element)).gsub(/\s+/, '').scan(/.{1,68}/o) { data << $& << "\n" }
+          Base64::encode64(Marshal.dump(element, options.merge({:noenv => true}))).gsub(/\s+/, '').scan(/.{1,68}/o) { data << $& << "\n" }
           output << tag('data', data )
         end
       end
@@ -126,11 +128,11 @@ module Plist
       if block_given?
         out = IndentedString.new
         out << "<#{type}>"
-        out.raise_indent
+        #out.raise_indent
 
         out << block.call
 
-        out.lower_indent
+        #out.lower_indent
         out << "</#{type}>"
       else
         out = "<#{type}>#{contents.to_s}</#{type}>\n"
@@ -154,24 +156,25 @@ module Plist
     end
 
     def self.element_type(item)
-      return case item
-        when String, Symbol
-            'string'
-        when Fixnum, Bignum, Integer
-            'integer'
-        when Float
-            'real'
-        else
-          raise "Don't know about this data type... something must be wrong!"
+      case item
+      when String, Symbol
+        'string'
+      when Fixnum, Bignum, Integer
+        'integer'
+      when Float
+        'real'
+      else
+        raise "Don't know about this data type... something must be wrong!"
       end
     end
+
     private
     class IndentedString #:nodoc:
       attr_accessor :indent_string
 
       @@indent_level = 0
 
-      def initialize(str = "\t")
+      def initialize(str = "  ")
         @indent_string = str
         @contents = ''
       end
@@ -195,13 +198,13 @@ module Plist
           end
         else
           # if it's already indented, don't bother indenting further
-          unless val =~ /\A#{@indent_string}/
+          # unless val =~ /\A#{@indent_string}/
             indent = @indent_string * @@indent_level
 
             @contents << val.gsub(/^/, indent)
-          else
-            @contents << val
-          end
+          # else
+          #   @contents << val
+          # end
 
           # it already has a newline, don't add another
           @contents << "\n" unless val =~ /\n$/
